@@ -502,25 +502,41 @@ if _G.proxy == nil then -- don't do this on refresh
 		end
 	})
 
-	local struct_variables_id_register = setmetatable({},{__mode = "k"})
-	local struct_variables_proxy_register = setmetatable({},{__mode = "v"})
+	local function struct_class_get(id,k)
+		local v = gm.struct_get(id,k)
+		--if type(v) ~= "userdata" or v.type ~= RValueType.REAL then return v end
+		--if v.value < 1 then return v end
+		if type(k) ~= "string" then return v end
+		if k:sub(#k-2) ~= "_id" then return v end
+		k = "class_" .. k:sub(1,#k-3)
+		local c = hardcoded.class[k]
+		if c == nil then return v end
+		c = c[v.value]
+		if c == nil then return v end
+		return c
+	end
 
-	local struct_variables_proxy_meta = define_proxy_meta(
-		gm.variable_struct_get_names,
-		gm.variable_struct_exists,
-		gm.variable_struct_get,
-		gm.variable_struct_set,
-		struct_variables_id_register
+	local struct_class_id_register = setmetatable({},{__mode = "k"})
+	local struct_class_proxy_register = setmetatable({},{__mode = "v"})
+
+	local struct_class_proxy_meta = define_proxy_meta(
+		gm.struct_get_names,
+		gm.struct_exists,
+		struct_class_get,
+		gm.struct_set,
+		struct_class_id_register
 	)
 
-	function proxy.struct.variables(id)
-		local proxy = struct_variables_proxy_register[id]
-		if proxy then return proxy end
-		proxy = setmetatable({},struct_variables_proxy_meta)
-		struct_variables_proxy_register[id] = proxy
-		struct_variables_id_register[proxy] = id
-		return proxy
-	end
+	proxy.struct.class = setmetatable({},{
+		__call = function(_,id)
+			local proxy = struct_class_proxy_register[id]
+			if proxy then return proxy end
+			proxy = setmetatable({},struct_class_proxy_meta)
+			struct_class_proxy_register[id] = proxy
+			struct_class_id_register[proxy] = id
+			return proxy
+		end
+	})
 
 	local global_variables_proxy_meta = define_proxy_meta(
 		function() return gm.variable_instance_get_names(EVariableType.GLOBAL) end,
@@ -746,12 +762,12 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 		endow_with_new_properties(getmetatable(gm_rvalue),{
 			type_name = get_rvalue_type_name,
 			lua_value = rvalue_marshall,
-			struct = proxy.struct
+			struct = proxy.struct.class
 		})
 		endow_with_new_properties(getmetatable(gm_container_item),{
 			type_name = get_rvalue_type_name,
 			lua_value = rvalue_marshall,
-			struct = proxy.struct
+			struct = proxy.struct.class
 		})
 		endow_with_new_properties(getmetatable(gm_instance),{
 			variables = proxy.variables
@@ -765,6 +781,8 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 		local gm_class_name_register = setmetatable({},{__mode='k'})
 		local gm_instance_fields_register = setmetatable({},{__mode='k'})
 
+		local function null() return nil end
+
 		local gm_instance_meta = {
 			__index = function(t,k)
 				local field = k
@@ -775,7 +793,9 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 				end
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return nil end
+				array = array.array
 				local value = array[field]
 				if value == nil then return nil end
 				return value
@@ -786,13 +806,17 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 				if not field then error("setting unknown field " .. k) end
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return end
+				array = array.array
 				array[field] = v
 			end,
 			__len = function(t)
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return 0 end
+				array = array.array
 				return #array
 			end,
 			__next = function(t,k)
@@ -802,7 +826,9 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 				if k == nil then return nil end
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return nil end
+				array = array.array
 				local value = array[field]
 				if value == nil then return k,nil end
 				return k,value
@@ -811,7 +837,9 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 				local fields = gm_instance_fields_register[t]
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return null end
+				array = array.array
 				return function(t,k)
 					local field
 					k, field = next(fields,k)
@@ -824,7 +852,9 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 			__inext = function(t,k)
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return nil end
+				array = array.array
 				local n = #array
 				if n == 0 then return nil end
 				k = (k or 0) + 1
@@ -836,7 +866,9 @@ if ImGui.GetStyleVar == nil then -- don't do this on refresh
 			__ipairs = function(t,k)
 				local array = proxy.globals[gm_class_name_register[t]].array
 				local id = gm_instance_id_register[t]
-				array = array[id].array
+				array = array[id]
+				if array == nil then return null end
+				array = array.array
 				return function(t,k)
 					local n = #array
 					if n == 0 then return nil end
